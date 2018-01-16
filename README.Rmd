@@ -55,7 +55,7 @@ We like to think that we made common sense decisions there.
 
 # Reproducability 
 
-A [notebook](https://raw.githubusercontent.com/Wytz/migraine_biomarkers/master/Notebook.html) with the executed code is available in the Notebook.html file, which fully reproduces the results presented in the article.
+A [notebook](http://wytze.info/migraine_biomarkers/) with the executed code is available in the Notebook.html file, which fully reproduces the results presented in the article.
 The data I extracted from the knowledge graph is available in the project as CSV files. 
 If you want access to the knowledge graph itself, please send me an email. 
 
