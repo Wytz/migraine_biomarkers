@@ -1,30 +1,56 @@
----
-title: "README"
-author: "Wytze Vlietstra"
-date: "1/11/2018"
-output: html_document
----
+# Introduction
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+This project describes the code that was used for the identification of migraine biomarkers with a semantic knowledge graph.
+A link to the journal article is available in the project description. 
 
-## R Markdown
+A semantic knowledge graph describes how biomedical entities, such as diseases and drugs, are related to each other using subject-predicate-object triples. 
+Often, these triples also contain references to sources in which they are described; their provenance. 
+In the knowledge graph used for this experiment, this was required. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The semantic web can be considered an implementation of a knowledge graph. 
+Where they differ is that the semantic web sets a number of additional requirements, such as unique URI's for each concept. 
+Furthermore, semantic web implementations commonly have "exact match" predicates between two concepts that describe the same real-world entity. 
+In the knowledge graph used by us, these concepts are simply merged to a single concept.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+# Experimental setup
 
-```{r cars}
-summary(cars)
-```
+## Use of the reference set
 
-## Including Plots
+The reference set used in this experiment was only used to evaluate the results, and not as the training set. 
+Effectively, we pretended we only had a minimal knowledge about the desired outcome. 
+We therefore chose to use the information in the knowledge graph as weights, instead of examining their semantic meaning. 
 
-You can also embed plots, for example:
+## Types of weights
 
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
+We examined three types of weights: 
+* The number of concepts connecting migraine to the potential biomarker
+* The number of predicates connecting migraine to the potential biomarker
+* The number of sources connecting migraine to the potential biomarker
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Where each weight was between 0 and 1. 
+
+Because identifying potential biomarkers that have a direct relationship with migraine is obvious, we only used information from the indirect relationships. 
+This information is more likely to be hidden in the bodies of journal articles, and not immediately and obviously mentioned in their titles or abstracts.
+The weights of the two steps were therefore multiplied with each other to calculate a "probability" of ending up at that specific biomarker if you randomly followed the concepts/predicates/sources. 
+
+## The migraine subgraph
+
+Because the UMLS covers a very wide range of concepts, ranging from organizations to atoms, we made a selection in the included types of concepts. 
+Not every concept type was considered to be relevant by the migraine researchers, who made this selection. 
+The ultimate list of included concept types is available in the article. 
+
+## Removing medications and highly generic concepts
+
+Another challenge were the drugs. 
+Many molecules naturally available in the body (endogenic) can also be used as a drug. 
+Glucose is a good example of this. 
+We therefore had to create a list of compounds which do not occur naturally in the body (exogenic), which we used to filter the list of potential biomarkers. 
+
+Another filter we applied was to remove highly generic concepts, such as the concept for "Disease". 
+These are generic to such a degree that they only serve to introduce noise. 
+We like to think that we made common sense decisions there. 
+
+# Reproducability 
+
+A notebook with the executed code is available in the Notebook.html file, which fully reproduces the results presented in the article. 
+This notebook also mentions the packages that were used, as well as the R version. 
