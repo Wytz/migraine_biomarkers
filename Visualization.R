@@ -22,7 +22,7 @@ output2 = data.frame(Rel = outcome_table_Rel$ID, Edge = outcome_table_Edge$ID, S
 
 ## Output table -- Calculate costs up to rank k for k 100:1500
 
-results = data.frame(k = c(100,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600,1700,1800,1900,2000))
+results = data.frame(k = seq(from = 100, to = 2000, by = 100))
 
 for(r in 1:nrow(results)){
   results$noweight_Edges[r] = length(which(output$Edge[1:results$k[r]] > 0))

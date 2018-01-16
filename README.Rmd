@@ -22,16 +22,19 @@ We therefore chose to use the information in the knowledge graph as weights, ins
 
 ## Types of weights
 
-We examined three types of weights: 
-* The number of concepts connecting migraine to the potential biomarker
-* The number of predicates connecting migraine to the potential biomarker
-* The number of sources connecting migraine to the potential biomarker
+We examined four types of weights: 
+1. The number of concepts connecting migraine to the potential biomarker
+2. The number of predicates connecting migraine to the potential biomarker
+3. The number of sources connecting migraine to the potential biomarker
+4. A variation to the number of concepts, where the edges in the second step are also used. If intermediate concepts are connected to a large number of other concepts, this decreases the weight of the edge. 
 
 Where each weight was between 0 and 1. 
 
 Because identifying potential biomarkers that have a direct relationship with migraine is obvious, we only used information from the indirect relationships. 
 This information is more likely to be hidden in the bodies of journal articles, and not immediately and obviously mentioned in their titles or abstracts.
 The weights of the two steps were therefore multiplied with each other to calculate a "probability" of ending up at that specific biomarker if you randomly followed the concepts/predicates/sources. 
+Surprisingly, we found little difference in overall performance between the different weights. 
+Some reference compounds were ranked higher than others depending on the ranking method, but overall, no "best" ranking method could be identified. 
 
 ## The migraine subgraph
 
@@ -52,5 +55,8 @@ We like to think that we made common sense decisions there.
 
 # Reproducability 
 
-A notebook with the executed code is available in the Notebook.html file, which fully reproduces the results presented in the article. 
-This notebook also mentions the packages that were used, as well as the R version. 
+A [notebook](https://raw.githubusercontent.com/Wytz/migraine_biomarkers/master/Notebook.html) with the executed code is available in the Notebook.html file, which fully reproduces the results presented in the article.
+The data I extracted from the knowledge graph is available in the project as CSV files. 
+If you want access to the knowledge graph itself, please send me an email. 
+
+The notebook also mentions the packages that were used, as well as the R version. 

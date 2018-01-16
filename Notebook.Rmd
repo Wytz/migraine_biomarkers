@@ -1,0 +1,335 @@
+---
+title: "Automated identification of migraine biomarkers using a semantic graph"
+author: "Wytze Vlietstra"
+date: "1/16/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+require(knitr)
+require(rjson)
+require(ggplot2)
+opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This notebook describes the code necessary to recreate the findings published in the journal article. 
+For more background and details, please see the [github repository](https://github.com/Wytz/migraine_biomarkers), where the description also contains a link to the journal article. 
+
+# Load the data
+
+First, we load both the potential biomarker compounds, as well as the reference set
+
+## Potential biomarkers
+
+```{r Data load, cache = T}
+
+# Load the subgraph
+subgraph = read.csv2("Adjacent connections -- Transmog 31-10-2016.csv", header = F, stringsAsFactors = F)
+colnames(subgraph) = c("Name", "ID", "PredicateID", "SemanticTypeIDs", "nSources", "Sources")
+
+# Load the potential biomarker compounds
+candidates = read.csv2("Indirect_Transmog_all 31-10-2016.csv", stringsAsFactors = F)
+
+# Consistency check
+candidates = candidates[which(candidates$Connected_to_ID %in% subgraph$ID),]
+```
+
+## Reference set
+
+```{r reference set, cache = T}
+selected = read.csv("Definite_CSF_compounds_migraine_node_IDs_16-01-2015.csv", stringsAsFactors = F, header = T, sep = ";")
+
+selected_serum = read.csv("Definite_serum_migraine_node_ID_16-01-2015_unique.csv", stringsAsFactors = F, header = F, sep = ";")
+colnames(selected_serum) = c("Compound", "UMLS", "ID", "Lit_count", "pref_scheme", "all_scheme")
+
+all = merge(selected, selected_serum, by = "ID", all = T)
+
+all[is.na(all)] = 0
+all$total = all$Selected + all$Lit_count
+```
+
+# Apply the filters
+
+Next, we filter the data for highly generic concepts, as well as for pharmacological preparations. 
+For this and the next steps, we use the concept identifiers instead of the concept names. 
+The list of generic concepts is shown below. 
+The list of exogenic drugs is too long, and therefore loaded as a separate file. 
+
+```{r Remove generic concepts, cache = T}
+
+General = '{
+"Disease" : 14188,
+"Chronic Disease" : 10188,
+"Rare Diseases" : 908408,
+"Body Tissue" : 43826,
+"Genes" : 19190,
+"Molecular targets" : 2242208,
+"Related compounds" : 825890,
+"Receptor" : 820372,
+"Enzymes" : 16098,
+"Vitamins" : 46376,
+"Toxin" : 44094,
+"Amino acids" : 3622,
+"Hormones" : 21946,
+"Antigens" : 4550,
+"Proteins" : 36588,
+"Cytokines" : 103770,
+"Pharmaceutical Preparations" : 14706,
+"Primary Disease" : 308818,
+"Syndrome" : 42644,
+"Ions" : 24216,
+"Elements" : 15436,
+"Steroids" : 41756, 
+"Cells" : 8996, 
+"DNA" : 14362}'
+
+# Create a pretty data frame
+general_concepts = t(as.data.frame(fromJSON(General)))
+filtergroup = data.frame(Name = rownames(general_concepts), ID = general_concepts[,1])
+
+# Remove these concepts from both the subgraph, the intermediate concepts in the candidates data frame, and the potential biomarkers
+subgraph = subgraph[-which(subgraph$ID %in% filtergroup$ID),]
+candidates = candidates[-which(candidates$Connected_to_ID %in% filtergroup$ID),]
+candidates = candidates[-which(candidates$ID %in% filtergroup$ID),]
+```
+
+Now we remove the drugs with a pre-created list (creation code available upon request). 
+
+```{r remove drugs, cache = T}
+
+# Load the data and remove it from the subgraph, the intermediate concepts in the candidates data frame, and the potential biomarkers
+filterstuff = read.csv2("pharma_not_wanted_2.csv", header = F)
+candidates = candidates[-which(candidates$ID %in% filterstuff$V1), ]
+candidates = candidates[-which(candidates$Connected_to_ID %in% filterstuff$V1), ]
+subgraph = subgraph[-which(subgraph$ID %in% filterstuff$V1), ]
+```
+
+# Calculate the ranking statistics
+
+The code below is used to calculate the three ranking statistics. 
+
+```{r calculate statistics, cache = T}
+# Calculate all the ranking statistics
+s = unique(subgraph[ , c("Name", "ID", "SemanticTypeIDs")])
+
+c = unique(candidates[, c("Name", "ID", "SemanticTypeIDs")])
+intermediate_table = unique(candidates[, c("Connected_to_ID", "Name", "ID", "SemanticTypeIDs")])
+
+nConcepts = aggregate(intermediate_table$Connected_to_ID, by = list(ID = intermediate_table$ID), FUN = length)
+colnames(nConcepts) = c("ID", "nConcepts")
+
+## Calculate the ranking statistics
+# Subgraph
+nSources_total = sum(subgraph$nSources)
+nRelationships_total = nrow(subgraph)
+
+s$Edge_Chance_AB = 1/nrow(s)
+s$Rel_Chance_AB = 0
+s$Source_Chance_AB = 0
+
+for(i in 1:length(s$ID)){
+  subgroup = subgraph[which(subgraph$ID == s$ID[i]), ]
+  s$Rel_Chance_AB[i] = nrow(subgroup) / nRelationships_total 
+  s$Source_Chance_AB[i] = sum(subgroup$nSources) / nSources_total
+}
+
+ConIDs = unique(candidates$Connected_to_ID)
+tempTab = data.frame()
+for(i in 1:length(ConIDs)){
+  subgroup = candidates[which(candidates$Connected_to_ID == ConIDs[i]),]  
+  IdFreq = as.data.frame(table(ID = subgroup$ID))
+  IdFreq$RelChance_BC = IdFreq$Freq / sum(IdFreq$Freq)
+  IdFreq$EdgeChance_BC = 1/nrow(subgroup)
+  IdSourceSums = aggregate(subgroup$nSources, by=list(ID = subgroup$ID), FUN=sum)
+  IdSourceSums$SourceChance_BC = IdSourceSums$x / sum(subgroup$nSources)  
+  IdFreq = merge(IdFreq[,-2], IdSourceSums[,-2], by = "ID")
+  IdFreq$Connected_to_ID = ConIDs[i]
+  tempTab = rbind(tempTab, IdFreq)
+}
+
+# Merge the subgraph statistics with the intermediate table
+combined_table = merge(tempTab, s[,c("ID","Edge_Chance_AB","Rel_Chance_AB","Source_Chance_AB")], by.x = "Connected_to_ID", by.y = "ID", all.x = T)
+
+## Calculate the cumulative chances
+combined_table$RelChance_total = combined_table$Rel_Chance_AB * combined_table$RelChance_BC
+combined_table$EdgeChance_total = combined_table$Edge_Chance_AB * combined_table$EdgeChance_BC
+combined_table$SourceChance_total = combined_table$Source_Chance_AB * combined_table$SourceChance_BC
+
+# Sum up the path-chances
+agg_RelChance = aggregate(combined_table$RelChance_total, by = list(ID = combined_table$ID), FUN = sum)
+colnames(agg_RelChance) = c("ID", "agg_rel")
+agg_EdgeChance = aggregate(combined_table$EdgeChance_total, by = list(ID = combined_table$ID), FUN = sum)
+colnames(agg_EdgeChance) = c("ID", "agg_edge")
+agg_SourceChance = aggregate(combined_table$SourceChance_total, by = list(ID = combined_table$ID), FUN = sum)
+colnames(agg_SourceChance) = c("ID", "agg_source")
+
+# Create a combined outcome table
+c$ID = as.factor(c$ID)
+outcome_table = merge(c, agg_RelChance, by = "ID")
+outcome_table = merge(outcome_table, agg_EdgeChance, by = "ID")
+outcome_table = merge(outcome_table, agg_SourceChance, by = "ID")
+outcome_table = merge(outcome_table, nConcepts, by = "ID")
+outcome_table$score = 0
+```
+
+# Evaluation
+
+Here, we evaluate the performance of our method. 
+First, the scores are assigned to the potential biomarker compounds. 
+
+```{r assign scores to the candidates, cache = T}
+# Assign scores to the compounds
+for(i in 1:nrow(all)) {
+  if(all$ID[i] %in% c$ID){
+    outcome_table[which(outcome_table$ID == all$ID[i]), "score"] = all$total[i]
+  }}
+```
+
+Next, we sort the list based on the most straightforward ranking mechanism; the number of intermediate concepts. 
+As a tie-breaker, a secondary filtering based on the edge probability is performed. 
+Please note that all scores will be included in the sheet below.
+If you want all the data written away, the output variable can be written as csv file. 
+The command to achieve this with is commented out. 
+
+```{r rank, cache = T}
+outcome_table_nCon = outcome_table[order(outcome_table$nConcepts, outcome_table$agg_edge, decreasing = T),]
+outcome_table_Edge = outcome_table[order(outcome_table$agg_edge, outcome_table$nConcepts, decreasing = T),]
+outcome_table_Source = outcome_table[order(outcome_table$agg_source, outcome_table$agg_rel, decreasing = T),]
+outcome_table_Rel = outcome_table[order(outcome_table$agg_rel, outcome_table$agg_source, decreasing = T),]
+
+output = data.frame(Rel = outcome_table_Rel$score, Edge = outcome_table_Edge$score, Source = outcome_table_Source$score, Concept = outcome_table_nCon$score)
+#write.csv2(output, "Compounds ranked and scored.csv", row.names = F)
+```
+
+```{r calcuate the top 2000, cache = T}
+results = data.frame(k = seq(from = 100, to = 2000, by = 100))
+
+for(r in 1:nrow(results)){
+  results$noweight_Edges[r] = length(which(output$Edge[1:results$k[r]] > 0))
+  results$noweight_Edges_avg[r] = round(results$k[r] / length(which(output$Edge[1:results$k[r]] > 0)), 2)
+  results$sum_weight_Edges[r] = sum(output$Edge[1:results$k[r]])
+  results$weight_Edges[r] = round(sum(output$Edge[1:results$k[r]]) / results$k[r], 2)
+  results$noweight_Rels[r] = length(which(output$Rel[1:results$k[r]] > 0))
+  results$noweight_Rels_avg[r] = round(results$k[r] / length(which(output$Rel[1:results$k[r]] > 0)), 2)
+  results$sum_weight_Rels[r] = sum(output$Rel[1:results$k[r]])
+  results$weight_Rels[r] = round(sum(output$Rel[1:results$k[r]]) / results$k[r], 2)
+  results$noweight_Source[r] = length(which(output$Source[1:results$k[r]] > 0))
+  results$noweight_Source_avg[r] = round(results$k[r] / length(which(output$Source[1:results$k[r]] > 0)), 2)
+  results$sum_weight_Source[r] = sum(output$Source[1:results$k[r]])
+  results$weight_Source_avg[r] = round(sum(output$Source[1:results$k[r]]) / results$k[r], 2)
+  results$noweight_Concept[r] = length(which(output$Concept[1:results$k[r]] > 0))
+  results$noweight_Concept_avg[r] = round(results$k[r] / length(which(output$Concept[1:results$k[r]] > 0)), 2)
+  results$sum_weight_Concept[r] = sum(output$Concept[1:results$k[r]])
+  results$weight_Concept_avg[r] = round(sum(output$Concept[1:results$k[r]]) / results$k[r], 2)
+}
+```
+
+Below are the results for the top 2000 results, when ranked by the number of intermediate concepts. 
+
+```{r table, cache = T, echo=F}
+print_table = results[,c("k", "noweight_Concept", "noweight_Concept_avg", "sum_weight_Concept", "weight_Concept_avg")]
+colnames(print_table) = c("k", "Number of concepts retrieved", "Average gain", "Number of points retrieved", "Average weighted Gain")
+kable(print_table, row.names = F)
+```
+
+Because some of the compounds are weighted, I had to develop a custom ROC-curve function, which is available below. 
+
+```{r print roc plots, cache = T}
+in_data = outcome_table_nCon
+
+indices = which(in_data$score > 0)
+
+weights = in_data$score[indices]
+
+plotstuff = as.data.frame(matrix(nrow = nrow(in_data), ncol = 3))
+colnames(plotstuff) = c("TPR", "weight_TPR", "FPR")
+
+N = nrow(outcome_table_nCon) - length(indices)
+for(i in 1:nrow(in_data)){
+  TP = length(which(in_data$score[1:i] > 0))
+  plotstuff[i, "TPR"] = TP / length(indices) #TPR = TP/P
+  plotstuff[i, "weight_TPR"] = sum(in_data$score[1:i]) / sum(in_data$score)
+  plotstuff[i, "FPR"] = (i - TP) / (N) #FPR = FP/N
+}
+
+area = c()
+area_weight = c()
+for(j in 1:nrow(plotstuff)){
+  addition = plotstuff$TPR[j-1] * (plotstuff$FPR[j] - plotstuff$FPR[j-1])
+  area = append(area, addition)
+  addition_weight = plotstuff$weight_TPR[j-1] * (plotstuff$FPR[j] - plotstuff$FPR[j-1])
+  area_weight = append(area_weight, addition_weight)
+}
+sum(area)
+sum(area_weight)
+
+ggplot(data = plotstuff, aes(x = FPR, y = TPR, color = "Unweighted performance")) +
+  geom_line(linetype="longdash", size = 2) +
+  geom_line(data = plotstuff, aes(x = FPR, y = weight_TPR, color = "Weighted performance"), size = 2) +
+  labs(x="False Positive Rate",y="True Positive Rate") +
+  theme(axis.title = element_text(size=15), legend.position = c(0.75, 0.08),  legend.title=element_blank(), legend.text=element_text(size=10), axis.text = element_text(size=15)) +
+  scale_color_manual(values=c("#6E6E6E", "#190707")) +
+  geom_abline(slope = 1, color = "grey", size = 1.5)
+```
+
+We achieve an auc of `r round(sum(area), 3)` for the unweighted plot, and an auc of `r round(sum(area_weight), 3)` for the weighted plot
+
+Finally, a violin graph is created as a type of advanced number line, to show whether there is a difference between the compounds that also have a direct relationship to migraine to the ones that do not. 
+
+```{r violin graph, message = F, warning=F, cache = T}
+# Identify the compounds that also have a direct relationship with migraine
+direct = all$ID[which(all$ID %in% subgraph$ID)]
+Con_direct = which(outcome_table_nCon$ID %in% direct)
+
+# Obtain the data
+rowcount = 2000
+d = outcome_table_nCon[1:rowcount, ]
+d$index = 1:rowcount
+d = d[which(d$score > 0), ]
+d$direct = 0
+d$direct[which(d$ID %in% direct)] = d$score[which(d$ID %in% direct)]
+d$indirect = abs(d$direct - d$score)
+d$list = "Indirect"
+d$list[which(d$direct > 0)] = "Direct"
+
+indices_direct = d$index[which(d$direct > 0)]
+indices_indirect = d$index[which(d$indirect > 0)]
+
+d$hist_direct = 0
+d$hist_indirect = 0
+for(i in 1:nrow(d)){
+  val = d$index[i]
+  if(d$direct[i] > 0){
+    hist_data = sum(indices_direct < val + 10 & indices_direct > val - 10)
+    d[i, "hist_direct"] = hist_data}
+  else{
+    hist_data = sum(indices_indirect < val + 10 & indices_indirect > val - 10)
+    d[i, "hist_indirect"] = hist_data}
+    d[i, "jitter"] = rnorm(1, mean = 0, sd = hist_data/6)
+}
+d$hist_direct = d$hist_direct * 2.5
+d$hist_indirect = d$hist_indirect * 2.5
+d$hist_direct = d$hist_direct - (5 * 2.5)
+d$hist_indirect = d$hist_indirect - (3 * 2.5)
+
+# Plot the figure
+ggplot(data = d, aes(hist_direct, index, fill = list)) + 
+  geom_violin(alpha = 0.1) +
+  geom_violin(aes(hist_indirect), alpha = 0.1) + 
+  geom_point(aes(jitter, index, colour = list, size = score, alpha = 0.75), show.legend = F)  + 
+  coord_flip() + 
+  geom_point(aes(x=-.2, y = mean(d$index)), colour = "red", size = 3, shape = 17) +
+  geom_point(aes(x=.2, y = (nrow(outcome_table) / 100)), colour = "blue", size = 3, shape = 18) +
+  scale_x_continuous(breaks=seq(-10,10,5)) +
+  theme(legend.position = "none", axis.title = element_text(size=18), axis.text = element_text(size=15)) +  
+  ylim(0,2000) + ylab("Rank") +xlab("Density of reference compounds") + xlim(-12, 12)
+
+```
+
+# R version and relevant packages
+
+```{r sessioninfo, cache = T, echo = F}
+sessionInfo()
+```
